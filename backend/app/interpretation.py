@@ -1,5 +1,8 @@
 import re
-from .config import LLM_API_KEY
+import json
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
+from .config import OPENROUTER_API_KEY, OPENROUTER_MODEL
 from .schemas import Interpretation
 
 SUPPORTED = ["total_revenue", "top_product", "monthly_trend", "top_region", "revenue_comparison"]
@@ -18,8 +21,40 @@ def fallback(question: str) -> Interpretation:
     raise ValueError("I can answer total revenue, top product, monthly trend, top region, or revenue comparison questions.")
 
 def interpret(question: str) -> tuple[Interpretation, str]:
-    # Provider integration is intentionally opt-in; fallback remains deterministic and safe.
-    if LLM_API_KEY:
-        # A production deployment may add a provider client here. Never execute model SQL.
-        return fallback(question), "fallback"
+    if OPENROUTER_API_KEY and OPENROUTER_MODEL:
+        try:
+            prompt = (
+                "Classify the user's business question into exactly one allowed intent. "
+                "Return JSON only with keys intent and parameters. Never return SQL. "
+                "Allowed intents: total_revenue, top_product, monthly_trend, top_region, "
+                "revenue_comparison. For revenue_comparison, parameters must contain "
+                "start_month and end_month in YYYY-MM format. "
+                f"User question: {question}"
+            )
+            request = Request(
+                "https://openrouter.ai/api/v1/chat/completions",
+                data=json.dumps({
+                    "model": OPENROUTER_MODEL,
+                    "temperature": 0,
+                    "response_format": {"type": "json_object"},
+                    "messages": [
+                        {"role": "system", "content": "You are a strict intent classifier."},
+                        {"role": "user", "content": prompt},
+                    ],
+                }).encode("utf-8"),
+                headers={
+                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                method="POST",
+            )
+            with urlopen(request, timeout=20) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            content = payload["choices"][0]["message"]["content"]
+            parsed = json.loads(content)
+            interpretation = Interpretation.model_validate(parsed)
+            return interpretation, "openrouter"
+        except (HTTPError, URLError, TimeoutError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+            # Provider failures must not stop deterministic local analytics.
+            pass
     return fallback(question), "fallback"
