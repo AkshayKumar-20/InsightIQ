@@ -1,3 +1,4 @@
+
 import { useEffect, useRef, useState } from "react";
 import { AlertCircle, ChevronLeft, ChevronRight, Copy, Database, Menu, Paperclip, Pencil, Plus, RefreshCw, RotateCcw, Send, Settings as SettingsIcon, Sparkles, Trash2, X } from "lucide-react";
 import { api } from "./services/api";
