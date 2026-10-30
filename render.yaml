@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: insightiq-api
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: FRONTEND_ORIGINS
+        value: https://insightiq-web.onrender.com
+      - key: INSIGHTIQ_DB_PATH
+        value: /var/data/insightiq.sqlite3
+    disk:
+      name: insightiq-data
+      mountPath: /var/data
+      sizeGB: 1
+  - type: web
+    name: insightiq-web
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_URL
+        value: https://insightiq-api.onrender.com
