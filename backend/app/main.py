@@ -2,9 +2,12 @@ from pathlib import Path
 import json
 import hashlib
 import secrets
-from fastapi import FastAPI, File, HTTPException, UploadFile
+import sqlite3
+from datetime import datetime, timedelta, timezone
+import bcrypt
+from fastapi import Cookie, FastAPI, File, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from .config import DB_PATH, DATASET_PATH, FRONTEND_ORIGINS
+from .config import COOKIE_SECURE, DB_PATH, DATASET_PATH, FRONTEND_ORIGINS, SESSION_DAYS
 from .database import initialize, connect
 from .ingestion import latest_summary
 from .schemas import AskRequest, AskResponse, HealthResponse
@@ -18,8 +21,41 @@ app = FastAPI(title="InsightIQ API", version="1.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=FRONTEND_ORIGINS, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 initialize()
 
+SESSION_COOKIE = "insightiq_session"
+
 def _password_hash(password: str) -> str:
-    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+def _password_matches(password: str, password_hash: str) -> bool:
+    try:
+        return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
+    except ValueError:
+        return secrets.compare_digest(password_hash, hashlib.sha256(password.encode("utf-8")).hexdigest())
+
+def _session_expiry() -> str:
+    return (datetime.now(timezone.utc) + timedelta(days=SESSION_DAYS)).isoformat()
+
+def _set_session_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        SESSION_COOKIE,
+        token,
+        max_age=SESSION_DAYS * 24 * 60 * 60,
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite="lax",
+    )
+
+def _user_from_session(session_token: str | None):
+    if not session_token:
+        return None
+    with connect() as connection:
+        connection.execute("DELETE FROM auth_tokens WHERE expires_at IS NOT NULL AND expires_at <= ?", (datetime.now(timezone.utc).isoformat(),))
+        return connection.execute(
+            "SELECT users.id, users.name, users.email, users.role "
+            "FROM users JOIN auth_tokens ON auth_tokens.user_id=users.id "
+            "WHERE auth_tokens.token=? AND auth_tokens.expires_at > ?",
+            (session_token, datetime.now(timezone.utc).isoformat()),
+        ).fetchone()
 
 def _auth(payload: dict):
     email = str(payload.get("email") or "").strip().lower()
@@ -38,32 +74,40 @@ def register(payload: dict):
     with connect() as connection:
         try:
             cursor = connection.execute("INSERT INTO users(email, name, role, password_hash) VALUES (?, ?, ?, ?)", (email, name, role, _password_hash(password)))
-        except Exception as exc:
+        except sqlite3.IntegrityError as exc:
             if "UNIQUE" in str(exc).upper():
                 raise HTTPException(409, "An account with this email already exists.")
             raise
-        token = secrets.token_urlsafe(32)
-        connection.execute("INSERT INTO auth_tokens(token, user_id) VALUES (?, ?)", (token, cursor.lastrowid))
-    return {"token": token, "user": {"id": cursor.lastrowid, "name": name, "email": email, "role": role}}
+    return {"user": {"id": cursor.lastrowid, "name": name, "email": email, "role": role}}
 
 @app.post("/api/auth/login")
-def login(payload: dict):
+def login(payload: dict, response: Response):
     email, password = _auth(payload)
     with connect() as connection:
         user = connection.execute("SELECT id, name, email, role, password_hash FROM users WHERE email=?", (email,)).fetchone()
-        if not user or not secrets.compare_digest(user["password_hash"], _password_hash(password)):
+        if not user or not _password_matches(password, user["password_hash"]):
             raise HTTPException(401, "Incorrect email or password.")
+        if len(user["password_hash"]) == 64:
+            connection.execute("UPDATE users SET password_hash=? WHERE id=?", (_password_hash(password), user["id"]))
         token = secrets.token_urlsafe(32)
-        connection.execute("INSERT INTO auth_tokens(token, user_id) VALUES (?, ?)", (token, user["id"]))
-    return {"token": token, "user": {"id": user["id"], "name": user["name"], "email": user["email"], "role": user["role"]}}
+        connection.execute("INSERT INTO auth_tokens(token, user_id, expires_at) VALUES (?, ?, ?)", (token, user["id"], _session_expiry()))
+    _set_session_cookie(response, token)
+    return {"user": {"id": user["id"], "name": user["name"], "email": user["email"], "role": user["role"]}}
 
 @app.get("/api/auth/me")
-def current_user(token: str):
-    with connect() as connection:
-        user = connection.execute("SELECT users.id, users.name, users.email, users.role FROM users JOIN auth_tokens ON auth_tokens.user_id=users.id WHERE auth_tokens.token=?", (token,)).fetchone()
+def current_user(insightiq_session: str | None = Cookie(default=None, alias=SESSION_COOKIE)):
+    user = _user_from_session(insightiq_session)
     if not user:
         raise HTTPException(401, "Your session has expired.")
     return dict(user)
+
+@app.post("/api/auth/logout")
+def logout(response: Response, insightiq_session: str | None = Cookie(default=None, alias=SESSION_COOKIE)):
+    if insightiq_session:
+        with connect() as connection:
+            connection.execute("DELETE FROM auth_tokens WHERE token=?", (insightiq_session,))
+    response.delete_cookie(SESSION_COOKIE)
+    return {"success": True}
 
 @app.on_event("startup")
 def startup():

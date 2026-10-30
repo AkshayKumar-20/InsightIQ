@@ -75,7 +75,8 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS auth_tokens (
  token TEXT PRIMARY KEY,
  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
- created_at TEXT DEFAULT CURRENT_TIMESTAMP
+ created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+ expires_at TEXT
 );
 """
 
@@ -98,3 +99,7 @@ def initialize(path: Path | str | None = None) -> None:
             conn.execute("ALTER TABLE conversations ADD COLUMN dataset_ref TEXT")
         if "context_json" not in conversation_columns:
             conn.execute("ALTER TABLE conversations ADD COLUMN context_json TEXT")
+        token_columns = {row["name"] for row in conn.execute("PRAGMA table_info(auth_tokens)")}
+        if "expires_at" not in token_columns:
+            conn.execute("ALTER TABLE auth_tokens ADD COLUMN expires_at TEXT")
+            conn.execute("UPDATE auth_tokens SET expires_at='' WHERE expires_at IS NULL")

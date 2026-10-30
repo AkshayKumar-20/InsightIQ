@@ -10,3 +10,5 @@ DATASET_PATH = Path(os.getenv("INSIGHTIQ_DATASET", ROOT / "data" / "sales_transa
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "")
 FRONTEND_ORIGINS = [x.strip() for x in os.getenv("FRONTEND_ORIGINS", "http://localhost:5173").split(",") if x.strip()]
+COOKIE_SECURE = os.getenv("COOKIE_SECURE", "true" if os.getenv("ENVIRONMENT", "").lower() == "production" else "false").lower() == "true"
+SESSION_DAYS = int(os.getenv("SESSION_DAYS", "30"))
