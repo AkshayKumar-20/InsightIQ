@@ -1,60 +1,82 @@
-# InsightIQ
+# InsightIQ — AI-Powered Business Intelligence Assistant
 
-InsightIQ is an AI-powered CSV intelligence assistant. It provides a ChatGPT-style conversational workspace for uploading CSV files, profiling their structure, and asking grounded questions answered from the active dataset.
+InsightIQ is a full-stack conversational CSV intelligence application. Users upload a CSV, inspect its detected structure, and ask natural-language questions answered from the active dataset. The interface is built with React and Vite; the API uses FastAPI, Pandas, and SQLite.
 
-The application supports both the built-in sales schema and arbitrary valid CSV schemas. Generic CSV questions are interpreted and executed deterministically against a generated SQLite table; the application never executes user-provided SQL or fabricated model-generated SQL.
+The implemented query engine is deterministic and local. It does not execute arbitrary SQL or require an external LLM. Sales-shaped files use trusted sales analytics; other valid CSVs use the generic profiling and query engine.
 
-## Features
+## Problem and objectives
 
-- Upload and validate CSV files with delimiter and encoding detection.
-- Detect columns and infer numeric, categorical, text, and date types.
-- Report row counts, column counts, missing values, duplicate rows, samples, and summaries.
-- Keep the active filename and dataset tied to each conversation.
-- Answer generic CSV questions about:
-  - counts and row samples
-  - sums, averages, minimums, and maximums
-  - filters and date/year queries
-  - grouping, ranking, top-N results, and comparisons
-  - unique values, missing values, and duplicates
-- Preserve conversational context for follow-up questions such as “Only HR”, “What about North?”, and “Compare both”.
-- Provide trusted sales analytics for revenue, products, regions, trends, and month comparisons.
-- Display grounded text answers followed by relevant tables and charts.
-- Persist conversation history, rename conversations, delete conversations, and restore message order.
-- Responsive React interface with CSV upload, active dataset details, retry, copy, loading states, and mobile layout.
+Business users often have useful CSV data but need to understand it without writing SQL or building a dashboard first. InsightIQ addresses this by:
+
+- profiling uploaded files automatically;
+- identifying usable numeric, categorical, text, and date columns;
+- answering common analytical questions in natural language;
+- keeping answers tied to the selected conversation dataset; and
+- presenting grounded answers with tables, metrics, and relevant charts.
+
+## Key features
+
+- CSV upload with validation, delimiter/encoding detection, and safe error handling.
+- Automatic schema profiling, row/column counts, missing-value counts, duplicate detection, and summaries.
+- Generic questions for counts, sums, averages, minimums, maximums, filters, grouping, ranking, samples, unique values, missing values, dates, and comparisons.
+- Trusted sales analytics for net revenue, products, regions, trends, and month comparisons.
+- Conversation history with dataset association, rename, delete, chronological messages, and follow-up context.
+- React chat interface with responsive sidebar, CSV upload, active dataset details, charts, tables, retry, copy, settings, and authentication.
+- Parameterized SQLite values and validated dynamic identifiers to prevent unsafe query execution.
 
 ## Technology stack
 
-- **Frontend:** React, Vite, Recharts, Lucide React, CSS
-- **Backend:** Python, FastAPI, Pydantic, Pandas
-- **Database:** SQLite
-- **Testing:** pytest, FastAPI `TestClient`
-- **Deployment:** Render configuration in `render.yaml`
+| Area | Actual technology |
+|---|---|
+| Frontend | React, Vite, Recharts, Lucide React, CSS |
+| Backend | Python, FastAPI, Pydantic |
+| Data processing | Pandas |
+| Database | SQLite |
+| Tests | pytest, FastAPI TestClient |
+| Deployment configuration | Render Blueprint in `render.yaml` |
 
-## Architecture
+## Requirements
+
+- Python 3.11 or newer recommended.
+- Node.js and npm.
+- Windows users should use `npm.cmd` if PowerShell blocks `npm.ps1`.
+- A writable project data directory for SQLite and uploaded files.
+
+## Project structure
 
 ```text
-React/Vite frontend
-        |
-        | HTTP JSON and multipart CSV upload
-        v
-FastAPI application
-  - /api/upload
-  - /api/chat
-  - /api/conversations
-  - /api/analytics/*
-        |
-        +--> Trusted sales analytics in app/analytics.py
-        +--> Generic CSV profiling/query engine in app/generic.py
-        +--> Conversation and dataset persistence in SQLite
+insightiq/
+├── backend/
+│   ├── app/
+│   │   ├── analytics.py       # Trusted sales queries
+│   │   ├── database.py        # SQLite schema and connections
+│   │   ├── generic.py         # Generic CSV profiling and query engine
+│   │   ├── ingestion.py       # Sales CSV ingestion
+│   │   ├── interpretation.py  # Allowlisted sales intent interpretation
+│   │   ├── main.py            # FastAPI routes
+│   │   ├── schemas.py         # Pydantic API models
+│   │   └── services.py        # Sales response generation
+│   ├── requirements.txt
+│   └── tests/
+├── data/
+│   ├── insightiq.sqlite3
+│   └── uploads/
+├── frontend/
+│   ├── src/
+│   │   ├── App.jsx
+│   │   ├── components/Chart.jsx
+│   │   └── services/api.js
+│   └── package.json
+├── scripts/import_data.py
+├── ARCHITECTURE.md
+├── TESTING.md
+├── AI_USAGE_AND_DEVELOPMENT.md
+└── render.yaml
 ```
-
-Sales-shaped files are normalized by `backend/app/ingestion.py` and queried by `backend/app/analytics.py`. Other CSV files are profiled and stored in generated tables by `backend/app/generic.py`. Dynamic SQL identifiers are validated and quoted; all user values are passed as SQLite parameters.
-
-Conversation records store `dataset_ref` and `context_json`, preventing a conversation from accidentally querying the most recently uploaded dataset.
 
 ## Installation
 
-From the repository root on Windows:
+From the repository root:
 
 ```powershell
 python -m pip install -r backend\requirements.txt
@@ -63,32 +85,64 @@ npm.cmd install
 cd ..
 ```
 
-Python 3.11+ and Node.js are recommended.
+## Environment configuration
 
-## Backend startup
+The repository includes safe examples:
+
+- root `.env.example`
+- `backend\.env.example`
+
+The backend reads these variables:
+
+```text
+INSIGHTIQ_DB_PATH=data/insightiq.sqlite3
+INSIGHTIQ_DATASET=data/sales_transactions.csv
+FRONTEND_ORIGINS=http://localhost:5173
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4o-mini
+```
+
+The current runtime code uses `INSIGHTIQ_DB_PATH`, `INSIGHTIQ_DATASET`, and `FRONTEND_ORIGINS`. The OpenAI variables are placeholders and are not used to execute runtime queries.
+
+The frontend reads:
+
+```powershell
+$env:VITE_API_URL = "http://localhost:8000"
+```
+
+Do not commit real secrets, production `.env` files, private CSVs, SQLite databases, or uploaded customer data.
+
+## Start the backend
+
+From the repository root:
+
+```powershell
+$env:PYTHONPATH = "backend"
+python -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000
+```
+
+Alternatively:
 
 ```powershell
 cd backend
 python -m uvicorn app.main:app --reload
 ```
 
-The backend listens on `http://localhost:8000`.
+The API is available at `http://localhost:8000`.
 
-To load the bundled sales CSV:
+To import the bundled sales data:
 
 ```powershell
 python scripts\import_data.py
 ```
 
-To import another sales-compatible file:
+To import another sales-compatible CSV:
 
 ```powershell
 python scripts\import_data.py "C:\path\to\sales.csv"
 ```
 
-The default SQLite database is `data\insightiq.sqlite3`.
-
-## Frontend startup
+## Start the frontend
 
 In a second terminal:
 
@@ -97,96 +151,142 @@ cd frontend
 npm.cmd run dev
 ```
 
-Open the Vite URL shown in the terminal, normally `http://localhost:5173`.
+Open the Vite URL, normally `http://localhost:5173`.
 
-The frontend uses `http://localhost:8000` by default. Set `VITE_API_URL` before starting Vite when the backend is hosted elsewhere:
+For a different backend:
 
 ```powershell
 $env:VITE_API_URL = "http://localhost:8000"
 npm.cmd run dev
 ```
 
-## Environment configuration
+## Using InsightIQ
 
-Copy the example configuration when environment-specific values are needed:
+1. Open the frontend.
+2. Sign in or create an account.
+3. Click the attachment button and select a `.csv` file.
+4. Confirm the active filename, row count, column count, missing values, and duplicates.
+5. Ask a question such as `How many records?`, `What is the average Salary?`, or `Show the first five rows`.
+6. Use the sidebar to return to a conversation. Each conversation retains its dataset reference and context.
 
-```powershell
-Copy-Item backend\.env.example backend\.env
+## API endpoints
+
+### Health and metadata
+
+- `GET /health` — basic health response.
+- `GET /api/health` — API health response.
+- `GET /api/metadata` — active dataset, profile, supported questions, and reporting metadata.
+
+### Upload and analytics
+
+- `POST /api/upload` — upload a CSV; accepts optional `conversation_id`.
+- `GET /api/analytics/summary` — sales KPI summary.
+- `GET /api/analytics/trends` — monthly sales trend.
+- `GET /api/analytics/monthly` — alias for trends.
+- `GET /api/analytics/products` — product revenue results.
+- `GET /api/analytics/regions` — regional revenue results.
+- `GET /api/analytics/comparison` — compare two `YYYY-MM` sales periods.
+- `GET /api/data-quality` — sales import quality and rejection information.
+
+### Questions and conversations
+
+- `POST /api/ask` — question endpoint used by the backend compatibility path.
+- `POST /api/chat` — frontend chat endpoint; accepts `question` and optional `conversation_id`.
+- `GET /api/conversations` — list conversations.
+- `POST /api/conversations` — create a conversation.
+- `GET /api/conversations/{id}` — retrieve conversation messages in insertion order.
+- `PATCH /api/conversations/{id}` — rename a conversation.
+- `DELETE /api/conversations/{id}` — delete a conversation.
+- `POST /api/conversations/{id}/messages` — persist a user or assistant message.
+
+### Authentication and profile
+
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `GET /api/auth/me`
+- `GET /api/profile`
+- `PUT /api/profile`
+
+## Data storage
+
+By default:
+
+- SQLite database: `data\insightiq.sqlite3`
+- Uploaded CSVs: `data\uploads\`
+
+Generic datasets are stored in generated SQLite tables and described in `generic_datasets`. Production deployments need persistent disk storage for SQLite and uploads. The provided Render configuration mounts `/var/data` for the backend database.
+
+## Screenshots
+
+No screenshot files are currently committed. Add assessment screenshots under `docs/screenshots/` and reference them here, for example:
+
+```text
+docs/screenshots/chat-home.png
+docs/screenshots/uploaded-dataset.png
+docs/screenshots/conversation-history.png
 ```
 
-Important settings include:
+## Testing
 
-- `DB_PATH`: SQLite database location
-- `DATASET_PATH`: default sales CSV location
-- `FRONTEND_ORIGINS`: allowed frontend origins
-- `VITE_API_URL`: frontend API base URL
-
-An external LLM key is optional. The verified default path is deterministic and database-grounded; no external model is required for the supported CSV operations.
-
-## API
-
-Health:
-
-- `GET /health`
-- `GET /api/health`
-
-Data and analytics:
-
-- `GET /api/metadata`
-- `POST /api/upload`
-- `GET /api/analytics/summary`
-- `GET /api/analytics/monthly`
-- `GET /api/analytics/products`
-- `GET /api/analytics/regions`
-- `GET /api/analytics/comparison`
-- `GET /api/data-quality`
-
-Chat and conversations:
-
-- `POST /api/chat`
-- `GET /api/conversations`
-- `POST /api/conversations`
-- `GET /api/conversations/{id}`
-- `PATCH /api/conversations/{id}`
-- `DELETE /api/conversations/{id}`
-- `POST /api/conversations/{id}/messages`
-
-## Testing and verification
-
-Run the backend tests:
+Backend:
 
 ```powershell
 $env:PYTHONPATH = "backend"
 python -m pytest -q
 ```
 
-Build the frontend:
+Focused generic CSV tests:
+
+```powershell
+$env:PYTHONPATH = "backend"
+python -m pytest backend\tests\test_generic_datasets.py -q
+```
+
+Frontend production build:
 
 ```powershell
 cd frontend
 npm.cmd run build
 ```
 
-The audit suite covers CSV ingestion, multiple schemas, profiling, calculations, filters, grouping, ranking, dates, missing values, dataset isolation, message ordering, and follow-up context. The production build is also verified with Vite.
+The repository does not currently include a frontend component-test runner. See `TESTING.md` for the test scope and manual smoke workflow.
 
-## Screenshots
+## Troubleshooting
 
-The current repository does not contain committed screenshot assets. The running application provides the approved InsightIQ workspace with:
+### Frontend cannot reach the API
 
-- the collapsible InsightIQ sidebar
-- right-aligned user messages and left-aligned assistant messages
-- active CSV and dataset profile information
-- grounded answer tables and charts
-- mobile-responsive layout
+Confirm the backend is running on port 8000 and set:
 
-To capture screenshots locally, start the backend and frontend using the commands above and save images under `docs/screenshots/`.
+```powershell
+$env:VITE_API_URL = "http://localhost:8000"
+```
 
-## Known limitations
+Restart Vite after changing environment variables.
 
-- The default interpreter is deterministic and does not require an external LLM.
-- The frontend build reports a non-blocking bundle-size warning from the current dependency bundle.
-- Date filtering is supported by natural-language year/month queries; there is no separate date-picker workflow.
+### Port 8000 is already in use
 
-## Render deployment
+Find the process using the port, stop that specific process if appropriate, or run the backend on another port and set the matching `VITE_API_URL`:
 
-`render.yaml` defines the deployable services. Configure the generated service URLs in `FRONTEND_ORIGINS` and `VITE_API_URL`, and use persistent storage for SQLite data and uploaded CSV files.
+```powershell
+python -m uvicorn app.main:app --app-dir backend --port 8001
+$env:VITE_API_URL = "http://localhost:8001"
+```
+
+### CSV upload fails
+
+Confirm the file has a `.csv` extension, a named header row, valid text encoding, and consistent rows. Empty, malformed, binary, and unnamed-column files are rejected intentionally.
+
+### Questions return an unsupported-query error
+
+Use a question tied to detected schema columns, such as `average Salary`, `count records`, `show HR`, `highest Price`, or `show records from 2025`. The assistant does not fabricate answers for unsupported operations.
+
+## Future enhancements
+
+- Add a dedicated frontend component-test and browser end-to-end test setup.
+- Improve ambiguous column/entity clarification.
+- Add pagination and larger-dataset performance controls.
+- Add production-grade password hashing, authorization, rate limiting, and audit logging.
+- Add persistent object storage and backups for uploaded files and SQLite data.
+- Add structured monitoring and deployment health checks.
+
+Do not push or deploy automatically from this repository. Review changes and configure secrets in the target hosting platform first.
