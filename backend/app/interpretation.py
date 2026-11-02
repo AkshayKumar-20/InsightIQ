@@ -53,6 +53,8 @@ def interpret(question: str) -> tuple[Interpretation, str]:
             content = payload["choices"][0]["message"]["content"]
             parsed = json.loads(content)
             interpretation = Interpretation.model_validate(parsed)
+            # Do not let a provider classify unrelated questions as analytics.
+            fallback(question)
             return interpretation, "openrouter"
         except (HTTPError, URLError, TimeoutError, KeyError, TypeError, ValueError, json.JSONDecodeError):
             # Provider failures must not stop deterministic local analytics.
